@@ -3,6 +3,7 @@
 #include "WorkerInterface.h"
 
 #include <cstdint>
+#include <ctime>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -28,6 +29,7 @@ struct ShapeData {
 
 struct ImageData {
     std::vector<uint8_t> jpegBuffer;
+    std::tm timestamp;
 };
 
 struct SensorData {

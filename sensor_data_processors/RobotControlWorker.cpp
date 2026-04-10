@@ -7,7 +7,7 @@
 #include <thread>
 #include <unistd.h>
 
-const char* ARDUINO_IP;
+std::string ARDUINO_IP;
 const int ARDUINO_PORT = 4210;
 
 RobotControlWorker::RobotControlWorker()
@@ -63,7 +63,7 @@ void RobotControlWorker::start() {
             std::cout << "\n--- Handshake Successful ---" << std::endl;
             std::cout << "Arduino IP address: " << buffer;
             std::cout << "----------------------------\n" << std::endl;
-            ARDUINO_IP = buffer;
+            ARDUINO_IP = std::string(buffer);
         }
 
         close(esp_client_socket); // Hang up the client connection
@@ -79,7 +79,12 @@ void RobotControlWorker::start() {
     }
     arduinoAddr_.sin_family = AF_INET;
     arduinoAddr_.sin_port = htons(ARDUINO_PORT);
-    inet_pton(AF_INET, ARDUINO_IP, &arduinoAddr_.sin_addr);
+    if (inet_pton(AF_INET, ARDUINO_IP.c_str(), &arduinoAddr_.sin_addr) <= 0) {
+        std::cerr << "Invalid Arduino IP address format: " << ARDUINO_IP
+                  << std::endl;
+        return;
+    }
+    // inet_pton(AF_INET, ARDUINO_IP, &arduinoAddr_.sin_addr);
 
     isRunning_ = true;
     while (isRunning_) {
@@ -183,8 +188,23 @@ void RobotControlWorker::processLLMInput(std::shared_ptr<SensorData> data) {
         }
     }
 }
+// void RobotControlWorker::sendUDP(const char* message) {
+//     std::cout << "sendUdp: " << message << std::endl;
+//     sendto(arduinoSocket_, message, strlen(message), 0,
+//            (struct sockaddr*)&arduinoAddr_, sizeof(arduinoAddr_));
+// }
+
 void RobotControlWorker::sendUDP(const char* message) {
-    std::cout << "sendUdp: " << message << std::endl;
-    sendto(arduinoSocket_, message, strlen(message), 0,
-           (struct sockaddr*)&arduinoAddr_, sizeof(arduinoAddr_));
+    std::cout << "[C++] Attempting to send UDP: " << message << std::endl;
+
+    ssize_t bytes_sent =
+        sendto(arduinoSocket_, message, strlen(message), 0,
+               (struct sockaddr*)&arduinoAddr_, sizeof(arduinoAddr_));
+
+    if (bytes_sent < 0) {
+        perror("[C++] UDP sendto failed"); // This will print the exact OS error
+    } else {
+        std::cout << "[C++] Successfully sent " << bytes_sent << " bytes to "
+                  << ARDUINO_IP << std::endl;
+    }
 }

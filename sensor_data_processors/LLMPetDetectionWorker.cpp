@@ -259,17 +259,15 @@ LLMPetDetectionWorker::askGemini(const std::vector<uint8_t>& imageBuffer) {
             auto sensorData = std::make_shared<SensorData>();
             sensorData->llmInput = llmCommand;
 
-            dispatcher_->enqueueData(sensorData);
+            if (detectedText == "Dog") {
+                sensorData->detectedObjects =
+                    std::vector<int>{static_cast<int>(Object::Dog)};
+            } else if (detectedText == "Cat") {
+                sensorData->detectedObjects =
+                    std::vector<int>{static_cast<int>(Object::Cat)};
+            }
 
-            // if (detectedText == "Dog") {
-            //     if (!image->detectedObjects.has_value())
-            //         data->detectedObjects = std::vector<int>();
-            //     data->detectedObjects->push_back(static_cast<int>(Object::Dog));
-            // } else if (detectedText == "Cat") {
-            //     if (!data->detectedObjects.has_value())
-            //         data->detectedObjects = std::vector<int>();
-            //     data->detectedObjects->push_back(static_cast<int>(Object::Cat));
-            // }
+            dispatcher_->enqueueData(sensorData);
 
         } catch (const std::exception& e) {
             std::cerr << "[LLM ERROR] Parsing failed: " << e.what()

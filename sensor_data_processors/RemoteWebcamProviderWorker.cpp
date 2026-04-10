@@ -1,5 +1,6 @@
 #include "RemoteWebcamProviderWorker.h"
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <map>
 #include <netinet/in.h>
@@ -14,7 +15,7 @@ RemoteWebcamProviderWorker::RemoteWebcamProviderWorker(
 RemoteWebcamProviderWorker::~RemoteWebcamProviderWorker() { stop(); }
 
 void RemoteWebcamProviderWorker::start() {
-    // std::cout << "RWP start" << std::endl;
+    std::cout << "RWP start" << std::endl;
     running_ = true;
 
     sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -22,6 +23,8 @@ void RemoteWebcamProviderWorker::start() {
         perror("Socket creation failed");
         return;
     }
+
+    std::cout << "RWP socket creation did not fail" << std::endl;
 
     // Set a timeout so recvfrom doesn't block forever, allowing clean shutdown
     struct timeval tv;
@@ -41,6 +44,7 @@ void RemoteWebcamProviderWorker::start() {
         close(sockfd_);
         return;
     }
+    std::cout << "RWP bind creation did not fail" << std::endl;
 
     std::cout << "RemoteWebcamProviderWorker started on port 5005..."
               << std::endl;
@@ -62,6 +66,8 @@ void RemoteWebcamProviderWorker::stop() {
 
 void RemoteWebcamProviderWorker::receiveLoop() {
     // 1. INCREASE BUFFER SIZE to safely hold the 1410 byte packets
+    std::cout << "RWP recieve loop called" << std::endl;
+
     uint8_t buffer[2048];
 
     while (running_) {
@@ -111,6 +117,9 @@ void RemoteWebcamProviderWorker::receiveLoop() {
                 // Assemble the full JPEG
                 auto data = std::make_shared<SensorData>();
                 data->image = ImageData();
+
+                std::time_t currentTime = std::time(nullptr);
+                localtime_r(&currentTime, &data->image->timestamp);
 
                 for (uint16_t i = 0; i < total_chunks; ++i) {
                     data->image->jpegBuffer.insert(
