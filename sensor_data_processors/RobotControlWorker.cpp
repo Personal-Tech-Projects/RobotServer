@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
@@ -146,53 +147,52 @@ void RobotControlWorker::processUserInput(std::shared_ptr<SensorData> data) {
     }
 }
 
+// Added Thread Sleeping for proper motor timing
+
 void RobotControlWorker::processLLMInput(std::shared_ptr<SensorData> data) {
-    // read data, find out which movement to take
-    // loop for amount of time to do that movement
     std::cout << "LLM process called" << std::endl;
 
+    // CALIBRATION VALUES: Change these to match robot's speed
     int timeToGoHalfFootMs = 940;
     int timeToGo45DegreesMs = 600;
     int sleepTime = 0;
 
-    if (data->llmInput.has_value()) {
+    // if (data->llmInput.has_value()) {
+    //     std::cout << "LLMInput has value" << std::endl;
 
-        std::cout << "LLMInput has value" << std::endl;
+    //     if (data->llmInput->type == MovementType::Forward) {
+    //         sleepTime = ((data->llmInput->value) / 0.5) * timeToGoHalfFootMs;
+    //         sendUDP("MOTOR, FORWARD");
+    //         std::this_thread::sleep_for(
+    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
+    //         sendUDP("MOTOR, STOP");
 
-        if (data->llmInput->type == MovementType::Forward) {
-            sleepTime = ((data->llmInput->value) / 0.5) * timeToGoHalfFootMs;
-            sendUDP("MOTOR, FORWARD");
-            // std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            sendUDP("MOTOR, STOP");
-        } else if (data->llmInput->type == MovementType::Backward) {
-            sleepTime = ((data->llmInput->value) / 0.5) * timeToGoHalfFootMs;
-            sendUDP("MOTOR, BACKWARD");
-            // std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            sendUDP("MOTOR, STOP");
-        } else if (data->llmInput->type == MovementType::Left) {
-            sendUDP("MOTOR, LEFT");
-            sleepTime = ((data->llmInput->value) / 45) * timeToGo45DegreesMs;
-            // std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            sendUDP("MOTOR, STOP");
-        } else if (data->llmInput->type == MovementType::Right) {
-            sleepTime = ((data->llmInput->value) / 45) * timeToGo45DegreesMs;
-            sendUDP("MOTOR, RIGHT");
-            // std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            sendUDP("MOTOR, STOP");
-        } else if (data->llmInput->type == MovementType::Stop) {
-            sendUDP("MOTOR, STOP");
-        }
-    }
+    //     } else if (data->llmInput->type == MovementType::Backward) {
+    //         sleepTime = ((data->llmInput->value) / 0.5) * timeToGoHalfFootMs;
+    //         sendUDP("MOTOR, BACKWARD");
+    //         std::this_thread::sleep_for(
+    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
+    //         sendUDP("MOTOR, STOP");
+
+    //     } else if (data->llmInput->type == MovementType::Left) {
+    //         sleepTime = ((data->llmInput->value) / 45.0) *
+    //         timeToGo45DegreesMs; sendUDP("MOTOR, LEFT");
+    //         std::this_thread::sleep_for(
+    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
+    //         sendUDP("MOTOR, STOP");
+
+    //     } else if (data->llmInput->type == MovementType::Right) {
+    //         sleepTime = ((data->llmInput->value) / 45.0) *
+    //         timeToGo45DegreesMs; sendUDP("MOTOR, RIGHT");
+    //         std::this_thread::sleep_for(
+    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
+    //         sendUDP("MOTOR, STOP");
+
+    //     } else if (data->llmInput->type == MovementType::Stop) {
+    //         sendUDP("MOTOR, STOP");
+    //     }
+    // }
 }
-// void RobotControlWorker::sendUDP(const char* message) {
-//     std::cout << "sendUdp: " << message << std::endl;
-//     sendto(arduinoSocket_, message, strlen(message), 0,
-//            (struct sockaddr*)&arduinoAddr_, sizeof(arduinoAddr_));
-// }
 
 void RobotControlWorker::sendUDP(const char* message) {
     std::cout << "[C++] Attempting to send UDP: " << message << std::endl;
@@ -202,7 +202,8 @@ void RobotControlWorker::sendUDP(const char* message) {
                (struct sockaddr*)&arduinoAddr_, sizeof(arduinoAddr_));
 
     if (bytes_sent < 0) {
-        perror("[C++] UDP sendto failed"); // This will print the exact OS error
+        perror(
+            "[C++] UDP send to failed"); // This will print the exact OS error
     } else {
         std::cout << "[C++] Successfully sent " << bytes_sent << " bytes to "
                   << ARDUINO_IP << std::endl;
