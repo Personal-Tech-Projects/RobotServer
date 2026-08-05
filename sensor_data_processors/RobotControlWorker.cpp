@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
+#include <fcntl.h>
 #include <iostream>
 #include <memory>
 #include <sys/socket.h>
@@ -23,14 +24,14 @@ void RobotControlWorker::enqueue(std::shared_ptr<SensorData> data) {
 
 void RobotControlWorker::start() {
 
-    int tcp_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (tcp_server_socket < 0) {
+    listenSocket_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenSocket_ < 0) {
         std::cerr << "Error creating TCP socket" << std::endl;
         return;
     }
 
     int opt = 1;
-    setsockopt(tcp_server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(listenSocket_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     struct sockaddr_in tcp_addr;
     memset(&tcp_addr, 0, sizeof(tcp_addr));
@@ -38,38 +39,65 @@ void RobotControlWorker::start() {
     tcp_addr.sin_addr.s_addr = INADDR_ANY;
     tcp_addr.sin_port = htons(5005);
 
-    if (bind(tcp_server_socket, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr)) <
-        0) {
+    if (bind(listenSocket_, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr)) < 0) {
         std::cerr << "TCP bind failed. Port 5005 might be in use." << std::endl;
-        close(tcp_server_socket);
+        close(listenSocket_);
+        listenSocket_ = -1;
         return;
     }
 
-    listen(tcp_server_socket, 1);
+    listen(listenSocket_, 8);
     std::cout << "Waiting for Arduino to connect via TCP on port 5005..."
               << std::endl;
 
-    // The code will completely PAUSE on this next line until the Arduino powers
-    // on
-    struct sockaddr_in esp_addr;
-    socklen_t esp_len = sizeof(esp_addr);
-    int esp_client_socket =
-        accept(tcp_server_socket, (struct sockaddr*)&esp_addr, &esp_len);
+    // Time out accept() every second so stop() can break us out of this loop.
+    // Accepted client sockets inherit this, which also stops a connection that
+    // opens but never sends from stalling us.
+    struct timeval acceptTimeout;
+    acceptTimeout.tv_sec = 1;
+    acceptTimeout.tv_usec = 0;
+    setsockopt(listenSocket_, SOL_SOCKET, SO_RCVTIMEO, &acceptTimeout,
+               sizeof(acceptTimeout));
 
-    if (esp_client_socket >= 0) {
-        char buffer[1024] = {0};
-        int bytes_read = read(esp_client_socket, buffer, sizeof(buffer) - 1);
+    // Keep accepting until a connection actually delivers the Arduino's IP.
+    // The ESP32's keepalive opens a connection every second; if one of those
+    // arrives first we must hang up on it and keep listening, otherwise the
+    // ping silently consumes the handshake and ARDUINO_IP is never set.
+    isRunning_ = true;
+    while (isRunning_ && ARDUINO_IP.empty()) {
+        struct sockaddr_in esp_addr;
+        socklen_t esp_len = sizeof(esp_addr);
+        int esp_client_socket =
+            accept(listenSocket_, (struct sockaddr*)&esp_addr, &esp_len);
 
-        if (bytes_read > 0) {
-            std::cout << "\n--- Handshake Successful ---" << std::endl;
-            std::cout << "Arduino IP address: " << buffer;
-            std::cout << "----------------------------\n" << std::endl;
-            ARDUINO_IP = std::string(buffer);
+        if (esp_client_socket < 0) {
+            continue; // accept timed out - keep waiting
         }
 
+        char buffer[1024] = {0};
+        int bytes_read = read(esp_client_socket, buffer, sizeof(buffer) - 1);
         close(esp_client_socket); // Hang up the client connection
+
+        if (bytes_read <= 0) {
+            continue; // keepalive ping, not a handshake
+        }
+
+        std::cout << "\n--- Handshake Successful ---" << std::endl;
+        std::cout << "Arduino IP address: " << buffer;
+        std::cout << "----------------------------\n" << std::endl;
+        ARDUINO_IP = std::string(buffer);
     }
-    close(tcp_server_socket); // Stop listening on TCP completely
+
+    if (ARDUINO_IP.empty()) {
+        close(listenSocket_); // stopped before the Arduino ever handshook
+        listenSocket_ = -1;
+        return;
+    }
+
+    // NOTE: listenSocket_ is deliberately left open. Closing it here is what
+    // made the handshake a one-shot: every later reconnect hit a dead port.
+    // From here the main loop drains it without blocking.
+    fcntl(listenSocket_, F_SETFL, O_NONBLOCK);
 
     // UDP Call
 
@@ -87,9 +115,9 @@ void RobotControlWorker::start() {
     }
     // inet_pton(AF_INET, ARDUINO_IP, &arduinoAddr_.sin_addr);
 
-    isRunning_ = true;
     while (isRunning_) {
         // std::cout << "RCW while IsRunning Entered" << std::endl;
+        drainKeepalives();
         if (!queue_.isEmpty()) {
             std::cout << "queue not empty" << std::endl;
             std::shared_ptr<SensorData> sensorData;
@@ -102,9 +130,49 @@ void RobotControlWorker::start() {
 
     // Cleanup
     close(arduinoSocket_);
+    if (listenSocket_ >= 0) {
+        close(listenSocket_);
+        listenSocket_ = -1;
+    }
 }
 
 void RobotControlWorker::stop() { isRunning_ = false; }
+
+// The ESP32 opens a fresh connection every second as its liveness check. Those
+// have to be accepted and hung up on, or they queue up in the listen backlog
+// until it overflows and the ESP32 starts seeing its own pings fail.
+void RobotControlWorker::drainKeepalives() {
+    while (true) {
+        struct sockaddr_in esp_addr;
+        socklen_t esp_len = sizeof(esp_addr);
+        int esp_client_socket =
+            accept(listenSocket_, (struct sockaddr*)&esp_addr, &esp_len);
+
+        if (esp_client_socket < 0) {
+            return; // nothing pending
+        }
+
+        char buffer[1024] = {0};
+        int bytes_read = read(esp_client_socket, buffer, sizeof(buffer) - 1);
+        close(esp_client_socket);
+
+        if (bytes_read <= 0) {
+            continue;
+        }
+
+        // Pings carry the IP too, so a reboot onto a new DHCP lease re-registers
+        // itself instead of leaving us sending to the stale address.
+        std::string reportedIp(buffer);
+        if (reportedIp != ARDUINO_IP) {
+            struct in_addr parsed;
+            if (inet_pton(AF_INET, reportedIp.c_str(), &parsed) > 0) {
+                ARDUINO_IP = reportedIp;
+                arduinoAddr_.sin_addr = parsed;
+                std::cout << "Arduino IP updated to " << ARDUINO_IP << std::endl;
+            }
+        }
+    }
+}
 
 void RobotControlWorker::process(std::shared_ptr<SensorData> data) {
 
