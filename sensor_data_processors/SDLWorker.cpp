@@ -74,14 +74,12 @@ void SDLWorker::start() {
                  "to quit."
               << std::endl;
 
-    auto inputData = std::make_shared<SensorData>();
-
-    inputData->userInput = UserInputData();
-
-    inputData->userInput.value().forward = false;
-    inputData->userInput.value().backward = false;
-    inputData->userInput.value().left = false;
-    inputData->userInput.value().right = false;
+    UserInputData inputState;
+    auto sendInput = [&]() {
+        auto inputData = std::make_shared<SensorData>();
+        inputData->userInput = inputState;
+        dispatcher_->enqueueData(inputData);
+    };
 
     isRunning = true;
 
@@ -100,20 +98,20 @@ void SDLWorker::start() {
                 if (event.key.repeat == 0) {
                     switch (event.key.keysym.sym) {
                     case SDLK_w:
-                        inputData->userInput.value().forward = true;
-                        dispatcher_->enqueueData(inputData);
+                        inputState.forward = true;
+                        sendInput();
                         break;
                     case SDLK_a:
-                        inputData->userInput.value().left = true;
-                        dispatcher_->enqueueData(inputData);
+                        inputState.left = true;
+                        sendInput();
                         break;
                     case SDLK_s:
-                        inputData->userInput.value().backward = true;
-                        dispatcher_->enqueueData(inputData);
+                        inputState.backward = true;
+                        sendInput();
                         break;
                     case SDLK_d:
-                        inputData->userInput.value().right = true;
-                        dispatcher_->enqueueData(inputData);
+                        inputState.right = true;
+                        sendInput();
                         break;
                     case SDLK_ESCAPE:
                         isRunning = false;
@@ -125,20 +123,20 @@ void SDLWorker::start() {
             else if (event.type == SDL_KEYUP) {
                 switch (event.key.keysym.sym) {
                 case SDLK_w:
-                    inputData->userInput.value().forward = false;
-                    dispatcher_->enqueueData(inputData);
+                    inputState.forward = false;
+                    sendInput();
                     break;
                 case SDLK_a:
-                    inputData->userInput.value().left = false;
-                    dispatcher_->enqueueData(inputData);
+                    inputState.left = false;
+                    sendInput();
                     break;
                 case SDLK_s:
-                    inputData->userInput.value().backward = false;
-                    dispatcher_->enqueueData(inputData);
+                    inputState.backward = false;
+                    sendInput();
                     break;
                 case SDLK_d:
-                    inputData->userInput.value().right = false;
-                    dispatcher_->enqueueData(inputData);
+                    inputState.right = false;
+                    sendInput();
                     break;
                 }
             }

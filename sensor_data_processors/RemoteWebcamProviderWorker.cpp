@@ -26,6 +26,9 @@ void RemoteWebcamProviderWorker::start() {
 
     std::cout << "RWP socket creation did not fail" << std::endl;
 
+    int reuse = 1;
+    setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
     // Set a timeout so recvfrom doesn't block forever, allowing clean shutdown
     struct timeval tv;
     tv.tv_sec = 0;

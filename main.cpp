@@ -9,9 +9,26 @@
 #include "UserInputProcessorWorker.h"
 #include "WorkerManager.h"
 #include "YoloPetDetectionWorker.h"
+#include <fcntl.h>
 #include <iostream>
+#include <sys/file.h>
+#include <unistd.h>
 
 int main() {
+    int lockFd = open("/tmp/robot_server.lock", O_CREAT | O_RDWR, 0644);
+    if (lockFd < 0 || flock(lockFd, LOCK_EX | LOCK_NB) < 0) {
+        if (lockFd >= 0)
+            close(lockFd);
+        std::cerr << "ROBOTSERVER is already running." << std::endl;
+        return 1;
+    }
+    if (ftruncate(lockFd, 0) < 0) {
+        std::cerr << "Unable to update ROBOTSERVER lock file." << std::endl;
+        close(lockFd);
+        return 1;
+    }
+    dprintf(lockFd, "%d\n", getpid());
+
     std::cout << "Hello, Robot Server!" << std::endl;
     std::vector<std::shared_ptr<SensorDataWorkerInterface>> processors;
     auto userInputProcessor = std::make_shared<UserInputProcessorWorker>();
@@ -61,5 +78,6 @@ int main() {
     // TODO: write code that blocks and waits for input to end the program
     // when key is pressed, call workerManager.stop
 
+    close(lockFd);
     return 0;
 }

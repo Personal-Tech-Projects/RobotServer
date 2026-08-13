@@ -14,7 +14,7 @@ void WorkerManager::start() {
         worker->start();
     }
     for (auto& worker : asyncWorkers_) {
-        std::thread workerThread([&worker]() { worker->start(); });
+        std::thread workerThread([worker]() { worker->start(); });
         workerThreads_.push_back(std::move(workerThread));
     }
 }
