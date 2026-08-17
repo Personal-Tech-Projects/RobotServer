@@ -1,4 +1,6 @@
 #include "RemoteWebcamProviderWorker.h"
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <iostream>
@@ -73,17 +75,98 @@ void RemoteWebcamProviderWorker::receiveLoop() {
 
     uint8_t buffer[2048];
 
+    // Disabled by default. Set to 1000 for one-second stability diagnostics.
+    const char* diagnosticIntervalText =
+        std::getenv("ROBOTSERVER_WEBCAM_DIAG_INTERVAL_MS");
+    long diagnosticIntervalMs = 0;
+    if (diagnosticIntervalText != nullptr) {
+        char* end = nullptr;
+        const long parsed = std::strtol(diagnosticIntervalText, &end, 10);
+        if (end != diagnosticIntervalText && *end == '\0' && parsed > 0) {
+            diagnosticIntervalMs = parsed;
+        } else {
+            std::cerr
+                << "[RWP-DIAG] Ignoring invalid "
+                   "ROBOTSERVER_WEBCAM_DIAG_INTERVAL_MS='"
+                << diagnosticIntervalText << "'" << std::endl;
+        }
+    }
+
+    const bool diagnosticsEnabled = diagnosticIntervalMs > 0;
+    const auto diagnosticInterval =
+        std::chrono::milliseconds(diagnosticIntervalMs);
+
+    const char* diagnosticMaxReportsText =
+        std::getenv("ROBOTSERVER_WEBCAM_DIAG_MAX_REPORTS");
+    long diagnosticMaxReports = 0;
+    if (diagnosticMaxReportsText != nullptr) {
+        char* end = nullptr;
+        const long parsed = std::strtol(diagnosticMaxReportsText, &end, 10);
+        if (end != diagnosticMaxReportsText && *end == '\0' && parsed >= 0) {
+            diagnosticMaxReports = parsed;
+        } else {
+            std::cerr
+                << "[RWP-DIAG] Ignoring invalid "
+                   "ROBOTSERVER_WEBCAM_DIAG_MAX_REPORTS='"
+                << diagnosticMaxReportsText << "'" << std::endl;
+        }
+    }
+
+    uint64_t diagnosticReportsEmitted = 0;
+    const auto diagnosticsActive = [&]() {
+        return diagnosticsEnabled &&
+               (diagnosticMaxReports == 0 ||
+                diagnosticReportsEmitted <
+                    static_cast<uint64_t>(diagnosticMaxReports));
+    };
+    if (diagnosticsEnabled) {
+        std::cout << "[RWP-DIAG] enabled interval_ms="
+                  << diagnosticIntervalMs << " max_reports="
+                  << (diagnosticMaxReports > 0
+                          ? std::to_string(diagnosticMaxReports)
+                          : std::string("unlimited"))
+                  << std::endl;
+    }
+
+    uint64_t receivedDatagramsTotal = 0;
+    uint64_t receivedDatagramsInterval = 0;
+    uint64_t completeChunkSetsTotal = 0;
+    uint64_t completeChunkSetsInterval = 0;
+    uint64_t smallPacketsTotal = 0;
+    uint64_t smallPacketsAtLastLog = 0;
+    uint32_t latestCompleteChunkSetFrame = 0;
+    bool hasCompleteChunkSet = false;
+    bool hasLoggedSmallPacket = false;
+    auto lastCompleteChunkSetAt = std::chrono::steady_clock::now();
+    auto lastDiagnosticAt = std::chrono::steady_clock::now();
+    auto lastSmallPacketLogAt = std::chrono::steady_clock::now();
+
     while (running_) {
         ssize_t n =
             recvfrom(sockfd_, buffer, sizeof(buffer), 0, nullptr, nullptr);
         // std::cout << "N: " << n << std::endl;
 
         if (n > 0) {
+            if (diagnosticsActive()) {
+                ++receivedDatagramsTotal;
+                ++receivedDatagramsInterval;
+            }
+
             // 2. Check if it's too small for our 10-byte header
             if (n < 10) {
-                // Swapped \n for std::endl to fix Docker log buffering
-                std::cout << "[RWP ERROR] Packet too small (" << n << " bytes)"
-                          << std::endl;
+                ++smallPacketsTotal;
+                const auto now = std::chrono::steady_clock::now();
+                if (!hasLoggedSmallPacket ||
+                    now - lastSmallPacketLogAt >= std::chrono::seconds(10)) {
+                    std::cerr
+                        << "[RWP ERROR] Dropped short webcam packet bytes=" << n
+                        << " since_last_log="
+                        << smallPacketsTotal - smallPacketsAtLastLog
+                        << " total=" << smallPacketsTotal << std::endl;
+                    hasLoggedSmallPacket = true;
+                    smallPacketsAtLastLog = smallPacketsTotal;
+                    lastSmallPacketLogAt = now;
+                }
                 continue; // Skip the rest of the loop and wait for the next
                           // packet
             }
@@ -112,6 +195,17 @@ void RemoteWebcamProviderWorker::receiveLoop() {
 
             // 6. Check if we have received all chunks for this frame
             if (frameBuffers_[frame_id].size() == total_chunks) {
+
+                // This means every sender-declared chunk is present. JPEG
+                // decoding and rendering happen later in SDLWorker.
+                if (diagnosticsActive()) {
+                    ++completeChunkSetsTotal;
+                    ++completeChunkSetsInterval;
+                    latestCompleteChunkSetFrame = frame_id;
+                    hasCompleteChunkSet = true;
+                    lastCompleteChunkSetAt =
+                        std::chrono::steady_clock::now();
+                }
 
                 // Swapped \n for std::endl to fix Docker log buffering
                 // std::cout << "[RWP SUCCESS] Frame " << frame_id << " fully
@@ -145,6 +239,44 @@ void RemoteWebcamProviderWorker::receiveLoop() {
                         ++it;
                     }
                 }
+            }
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto diagnosticElapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - lastDiagnosticAt);
+        if (diagnosticsActive() && diagnosticElapsed >= diagnosticInterval) {
+            const double seconds = diagnosticElapsed.count() / 1000.0;
+            const long long chunkSetAgeMs =
+                hasCompleteChunkSet
+                ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now - lastCompleteChunkSetAt)
+                      .count()
+                : -1;
+            std::cout << "[RWP-DIAG] received_datagrams_per_s="
+                      << static_cast<double>(receivedDatagramsInterval) /
+                             seconds
+                      << " complete_chunk_sets_per_s="
+                      << static_cast<double>(completeChunkSetsInterval) /
+                             seconds
+                      << " received_datagrams=" << receivedDatagramsTotal
+                      << " complete_chunk_sets=" << completeChunkSetsTotal
+                      << " small_packets=" << smallPacketsTotal
+                      << " latest_chunk_set_frame="
+                      << (hasCompleteChunkSet
+                              ? std::to_string(latestCompleteChunkSetFrame)
+                              : std::string("none"))
+                      << " chunk_set_age_ms=" << chunkSetAgeMs
+                      << " pending_frames=" << frameBuffers_.size()
+                      << std::endl;
+            receivedDatagramsInterval = 0;
+            completeChunkSetsInterval = 0;
+            lastDiagnosticAt = now;
+            ++diagnosticReportsEmitted;
+            if (!diagnosticsActive()) {
+                std::cout << "[RWP-DIAG] report_limit_reached="
+                          << diagnosticReportsEmitted << std::endl;
             }
         }
     }
