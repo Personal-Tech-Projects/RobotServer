@@ -51,3 +51,38 @@ The keeper is copied from this directory into a unique container `/tmp`
 directory on every run. Readiness is reported only after every requested port
 has actually bound. A `finally` cleanup stops the keeper and removes the
 temporary directory on both success and failure.
+
+## Stability health recorder
+
+`stability-health.ps1` is a bounded, observer-only test recorder. It does not
+restart services or send robot commands. It concurrently records:
+
+- authoritative Windows `netstat` ownership for TCP/UDP 5005, UDP 5006, and
+  UDP 8888 every 250 ms by default;
+- container state, restart counters, process identities, and resource usage;
+- QoS-compatible ROS application-output counts, freshness, and publisher GIDs;
+- ESP32 diagnostics from UDP 8890 without resetting the controller;
+- optional Pi camera service, device, PMIC voltage, thermal, and camera-log
+  status; and
+- bounded RobotServer and ROS bridge log tails.
+
+Run a read-only preflight:
+
+```powershell
+.\tools\stability-health.ps1 -Seconds 60 -OutputDir C:\robot-evidence\trial -PreflightOnly
+```
+
+Record a normal bounded window:
+
+```powershell
+.\tools\stability-health.ps1 -Seconds 60 -OutputDir C:\robot-evidence\trial -Tag baseline
+```
+
+For camera fault tests, use `-PiSampleSeconds 1`. The command refuses unsafe
+tags, an existing ESP32 or ROS health collector, and existing evidence names.
+`-AllowOverwrite` must be explicit to replace only the exact files for the
+requested tag.
+
+Every background collector has a recorded PID and command, a readiness proof,
+a bounded lifetime, and supervised cleanup. The command reports success only
+after validating its port, ROS, ESP32, and requested Pi evidence.
