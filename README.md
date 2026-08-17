@@ -19,7 +19,7 @@ The Raspberry Pi streamed JPEG frames over UDP, and the SDL window let me both s
 
 <ins>**Phase 2: Local Computer Vision**</ins> 
 
-To automate the pet tracking, I integrated OpenCV with local YOLO/Caffe models for object detection on the incoming UDP stream.
+To automate pet tracking, I experimented with local computer-vision models on the incoming UDP stream.
 
 **Challenge:** Local model accuracy was inconsistent for reliable pet detection on the fly. 
 
@@ -48,5 +48,5 @@ To solve the spatial awareness issue and achieve precise movement without motor 
 - Microcontrollers: ESP32 (micro-ROS, Direct Motor Control), Raspberry Pi (Sensors/Camera)
 - Networking: UDP, micro-ROS middleware
 - Navigation & Mapping: ROS2, Nav2, RS20 LiDAR, SLAM, LiDAR Odometry
-- Vision & AI: OpenCV, YOLOv8, Large Language Models (LLMs)
+- Vision & AI: OpenCV and Large Language Models (LLMs)
 

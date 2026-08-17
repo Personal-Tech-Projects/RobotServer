@@ -43,6 +43,3 @@ target_link_libraries(ROBOTSERVER
     SDL2_image  # Links the image extension
     opencv_world
 )
-
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/models DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

@@ -39,7 +39,6 @@ target_include_directories(sensor_data_processors
 
 target_link_libraries(sensor_data_processors
   PUBLIC
-    GTest::gmock
     Folly::folly
     SDL2::SDL2
     opencv_world
@@ -49,16 +48,10 @@ target_link_libraries(sensor_data_processors
 
 target_sources(sensor_data_processors
   PRIVATE
-   StreamProcessor.cpp
-   SensorDataProcessorMock.cpp
    SensorDataDispatcher.cpp
    SDLWorker.cpp
    WorkerManager.cpp
-   UserInputProcessorWorker.cpp
    RemoteWebcamProviderWorker.cpp
-   SimulatedWebcamSender.cpp
-   PetDetectionWorker.cpp
-   YoloPetDetectionWorker.cpp
    LLMPetDetectionWorker.cpp
    RobotControlWorker.cpp
 
@@ -69,17 +62,11 @@ target_sources(sensor_data_processors
       .
     FILES
       SensorDataWorkerInterface.h
-      StreamProcessor.h
-      SensorDataProcessorMock.h
       SensorDataDispatcher.h
       WorkerInterface.h
       SDLWorker.h
       WorkerManager.h
-      UserInputProcessorWorker.h
       RemoteWebcamProviderWorker.h
-      SimulatedWebcamSender.h
-      PetDetectionWorker.h
-      YoloPetDetectionWorker.h
       LLMPetDetectionWorker.h
       RobotControlWorker.h
 )
