@@ -1,14 +1,9 @@
 #include "LLMPetDetectionWorker.h"
-#include "PetDetectionWorker.h"
 #include "RemoteWebcamProviderWorker.h"
 #include "RobotControlWorker.h"
 #include "SDLWorker.h"
 #include "SensorDataDispatcher.h"
-#include "SimulatedWebcamSender.h"
-#include "StreamProcessor.h"
-#include "UserInputProcessorWorker.h"
 #include "WorkerManager.h"
-#include "YoloPetDetectionWorker.h"
 #include <fcntl.h>
 #include <iostream>
 #include <sys/file.h>
@@ -31,8 +26,6 @@ int main() {
 
     std::cout << "Hello, Robot Server!" << std::endl;
     std::vector<std::shared_ptr<SensorDataWorkerInterface>> processors;
-    auto userInputProcessor = std::make_shared<UserInputProcessorWorker>();
-    processors.push_back(userInputProcessor);
     auto dispatcher = std::make_shared<SensorDataDispatcher>(processors);
 
     std::vector<std::shared_ptr<WorkerInterface>> workers;
@@ -41,24 +34,15 @@ int main() {
     auto sdlWorker = std::make_shared<SDLWorker>(dispatcher);
     auto remoteWebcamProviderWorker =
         std::make_shared<RemoteWebcamProviderWorker>(dispatcher);
-    // auto petDetectionWorker = std::make_shared<PetDetectionWorker>();
-    // auto yoloWorker =
-    //     std::make_shared<YoloPetDetectionWorker>("models/yolo26n.onnx");
-    // auto simulatedWebcamSender = std::make_shared<SimulatedWebcamSender>();
     auto llmWorker = std::make_shared<LLMPetDetectionWorker>(dispatcher);
     auto robotControlWorker = std::make_shared<RobotControlWorker>();
 
     dispatcher->addProcessor(sdlWorker);
-    // dispatcher->addProcessor(petDetectionWorker);
-    // dispatcher->addProcessor(yoloWorker);
     dispatcher->addProcessor(llmWorker);
     dispatcher->addProcessor(robotControlWorker);
 
     asyncWorkers.push_back(remoteWebcamProviderWorker);
     asyncWorkers.push_back(sdlWorker);
-    // asyncWorkers.push_back(petDetectionWorker);
-    // asyncWorkers.push_back(yoloWorker);
-    // asyncWorkers.push_back(simulatedWebcamSender);
     asyncWorkers.push_back(llmWorker);
     asyncWorkers.push_back(robotControlWorker);
 

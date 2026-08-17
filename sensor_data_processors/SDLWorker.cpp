@@ -56,17 +56,6 @@ void SDLWorker::start() {
         return;
     }
 
-    SDL_Texture* testTexture = nullptr;
-    SDL_Surface* loadedSurface =
-        IMG_Load("assets/TestImageSDLRenderingSpongebob.jpg");
-    if (loadedSurface == nullptr) {
-        std::cerr << "Unable to load test image! SDL_image Error: "
-                  << IMG_GetError() << std::endl;
-    } else {
-        testTexture = SDL_CreateTextureFromSurface(renderer, loadedSurface);
-        SDL_FreeSurface(loadedSurface); // Free the RAM surface
-    }
-
     // 3. Main Loop Flag
     SDL_Event event;
 
@@ -200,8 +189,6 @@ void SDLWorker::start() {
                 } else {
                     std::cerr << "[SDL ERROR] SDL_RWFromConstMem failed.\n";
                 }
-            } else if (testTexture != nullptr) {
-                // SDL_RenderCopy(renderer, testTexture, NULL, NULL);
             }
 
             SDL_RenderPresent(renderer);
