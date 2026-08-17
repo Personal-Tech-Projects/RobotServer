@@ -1,6 +1,8 @@
 {
     "name": "Robot Server Dev",
-    "image": "blavigne0/robot-dev:v1",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
     "customizations": {
         "vscode": {
             "extensions": [
