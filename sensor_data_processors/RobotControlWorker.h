@@ -26,7 +26,7 @@ class RobotControlWorker : public SensorDataWorkerInterface {
     void processLLMInput(std::shared_ptr<SensorData> data);
     void sendUDP(const char* message);
     void drainKeepalives();
-    int arduinoSocket_;
+    int arduinoSocket_{-1};
     int listenSocket_{-1};
     struct sockaddr_in arduinoAddr_;
     std::shared_ptr<std::atomic<bool>> autonomousArmed_;

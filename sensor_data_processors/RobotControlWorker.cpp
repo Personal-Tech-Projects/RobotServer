@@ -113,8 +113,11 @@ void RobotControlWorker::start() {
     if (inet_pton(AF_INET, ARDUINO_IP.c_str(), &arduinoAddr_.sin_addr) <= 0) {
         std::cerr << "Invalid Arduino IP address format: " << ARDUINO_IP
                   << std::endl;
+        close(arduinoSocket_);
+        arduinoSocket_ = -1;
         return;
     }
+    sendUDP("MOTOR, STOP");
     // inet_pton(AF_INET, ARDUINO_IP, &arduinoAddr_.sin_addr);
 
     while (isRunning_) {
@@ -128,10 +131,13 @@ void RobotControlWorker::start() {
             } else {
             }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
     // Cleanup
+    sendUDP("MOTOR, STOP");
     close(arduinoSocket_);
+    arduinoSocket_ = -1;
     if (listenSocket_ >= 0) {
         close(listenSocket_);
         listenSocket_ = -1;
@@ -266,6 +272,10 @@ void RobotControlWorker::processLLMInput(std::shared_ptr<SensorData> data) {
 }
 
 void RobotControlWorker::sendUDP(const char* message) {
+    if (arduinoSocket_ < 0 || ARDUINO_IP.empty()) {
+        return;
+    }
+
     std::cout << "[C++] Attempting to send UDP: " << message << std::endl;
 
     ssize_t bytes_sent =

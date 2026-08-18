@@ -2,6 +2,7 @@
 #include "SensorDataWorkerInterface.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include <chrono>
 #include <iostream>
 #include <thread>
 
@@ -82,10 +83,12 @@ void SDLWorker::start() {
               << std::endl;
 
     UserInputData inputState;
+    auto lastInputSentAt = std::chrono::steady_clock::now();
     auto sendInput = [&]() {
         auto inputData = std::make_shared<SensorData>();
         inputData->userInput = inputState;
         dispatcher_->enqueueData(inputData);
+        lastInputSentAt = std::chrono::steady_clock::now();
     };
     auto stopAutoAndUpdateUi = [&]() {
         inputState = UserInputData{};
@@ -192,6 +195,14 @@ void SDLWorker::start() {
                 stopAutoAndUpdateUi();
             }
         } // <--- IMPORTANT: The event loop MUST close here!
+
+        const auto now = std::chrono::steady_clock::now();
+        const bool moving = inputState.forward || inputState.backward ||
+                            inputState.left || inputState.right;
+        if (moving &&
+            now - lastInputSentAt >= std::chrono::milliseconds(250)) {
+            sendInput();
+        }
 
         // ==========================================
         // PHASE 3: RENDER (Draw the current frame)
