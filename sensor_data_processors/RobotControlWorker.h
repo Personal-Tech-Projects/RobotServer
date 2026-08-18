@@ -2,6 +2,7 @@
 #include "SensorDataDispatcher.h"
 #include "SensorDataWorkerInterface.h"
 #include <atomic>
+#include <chrono>
 #include <folly/ProducerConsumerQueue.h>
 #include <memory>
 #include <netinet/in.h>
@@ -26,8 +27,13 @@ class RobotControlWorker : public SensorDataWorkerInterface {
     void processLLMInput(std::shared_ptr<SensorData> data);
     void sendUDP(const char* message);
     void drainKeepalives();
+    void serviceAutonomousMovement();
+    void clearAutonomousMovement();
     int arduinoSocket_{-1};
     int listenSocket_{-1};
     struct sockaddr_in arduinoAddr_;
+    const char* autonomousCommand_{"MOTOR, STOP"};
+    std::chrono::steady_clock::time_point autonomousUntil_{};
+    std::chrono::steady_clock::time_point nextAutonomousHeartbeat_{};
     std::shared_ptr<std::atomic<bool>> autonomousArmed_;
 };

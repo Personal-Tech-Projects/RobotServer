@@ -1,6 +1,8 @@
 #include "RobotControlWorker.h"
+#include <algorithm>
 #include <arpa/inet.h>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
@@ -131,6 +133,7 @@ void RobotControlWorker::start() {
             } else {
             }
         }
+        serviceAutonomousMovement();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
@@ -199,6 +202,8 @@ void RobotControlWorker::process(std::shared_ptr<SensorData> data) {
 
 void RobotControlWorker::processUserInput(std::shared_ptr<SensorData> data) {
 
+    clearAutonomousMovement();
+
     bool forwardKeyPressed = data->userInput.value().forward;
     bool backwardKeyPressed = data->userInput.value().backward;
     bool leftKeyPressed = data->userInput.value().left;
@@ -224,51 +229,81 @@ void RobotControlWorker::processUserInput(std::shared_ptr<SensorData> data) {
     }
 }
 
-// Added Thread Sleeping for proper motor timing
-
 void RobotControlWorker::processLLMInput(std::shared_ptr<SensorData> data) {
     std::cout << "LLM process called" << std::endl;
 
-    // CALIBRATION VALUES: Change these to match robot's speed
-    int timeToGoHalfFootMs = 940;
-    int timeToGo45DegreesMs = 600;
-    int sleepTime = 0;
+    constexpr int timeToGoHalfFootMs = 940;
+    constexpr int timeToGo45DegreesMs = 600;
+    constexpr int maxAutonomousDurationMs = 10000;
+    constexpr float maxTranslationFeet = 5.0f;
+    constexpr float maxRotationDegrees = 360.0f;
 
-    // if (data->llmInput.has_value()) {
-    //     std::cout << "LLMInput has value" << std::endl;
+    const auto& command = data->llmInput.value();
+    if (command.type == MovementType::Stop || !std::isfinite(command.value) ||
+        command.value <= 0.0f) {
+        sendUDP("MOTOR, STOP");
+        clearAutonomousMovement();
+        return;
+    }
 
-    //     if (data->llmInput->type == MovementType::Forward) {
-    //         sleepTime = ((data->llmInput->value) / 0.5) * timeToGoHalfFootMs;
-    //         sendUDP("MOTOR, FORWARD");
-    //         std::this_thread::sleep_for(
-    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
-    //         sendUDP("MOTOR, STOP");
+    int durationMs = 0;
+    switch (command.type) {
+    case MovementType::Forward:
+        autonomousCommand_ = "MOTOR, FORWARD";
+        durationMs = static_cast<int>(
+            (std::min(command.value, maxTranslationFeet) / 0.5f) *
+            timeToGoHalfFootMs);
+        break;
+    case MovementType::Backward:
+        autonomousCommand_ = "MOTOR, BACKWARD";
+        durationMs = static_cast<int>(
+            (std::min(command.value, maxTranslationFeet) / 0.5f) *
+            timeToGoHalfFootMs);
+        break;
+    case MovementType::Left:
+        autonomousCommand_ = "MOTOR, LEFT";
+        durationMs = static_cast<int>(
+            (std::min(command.value, maxRotationDegrees) / 45.0f) *
+            timeToGo45DegreesMs);
+        break;
+    case MovementType::Right:
+        autonomousCommand_ = "MOTOR, RIGHT";
+        durationMs = static_cast<int>(
+            (std::min(command.value, maxRotationDegrees) / 45.0f) *
+            timeToGo45DegreesMs);
+        break;
+    case MovementType::Stop:
+        return;
+    }
 
-    //     } else if (data->llmInput->type == MovementType::Backward) {
-    //         sleepTime = ((data->llmInput->value) / 0.5) * timeToGoHalfFootMs;
-    //         sendUDP("MOTOR, BACKWARD");
-    //         std::this_thread::sleep_for(
-    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
-    //         sendUDP("MOTOR, STOP");
+    durationMs = std::clamp(durationMs, 0, maxAutonomousDurationMs);
+    const auto now = std::chrono::steady_clock::now();
+    autonomousUntil_ = now + std::chrono::milliseconds(durationMs);
+    nextAutonomousHeartbeat_ = now;
+}
 
-    //     } else if (data->llmInput->type == MovementType::Left) {
-    //         sleepTime = ((data->llmInput->value) / 45.0) *
-    //         timeToGo45DegreesMs; sendUDP("MOTOR, LEFT");
-    //         std::this_thread::sleep_for(
-    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
-    //         sendUDP("MOTOR, STOP");
+void RobotControlWorker::serviceAutonomousMovement() {
+    if (autonomousUntil_ == std::chrono::steady_clock::time_point{}) {
+        return;
+    }
 
-    //     } else if (data->llmInput->type == MovementType::Right) {
-    //         sleepTime = ((data->llmInput->value) / 45.0) *
-    //         timeToGo45DegreesMs; sendUDP("MOTOR, RIGHT");
-    //         std::this_thread::sleep_for(
-    //             std::chrono::milliseconds(sleepTime)); // WAITS HERE
-    //         sendUDP("MOTOR, STOP");
+    const auto now = std::chrono::steady_clock::now();
+    if (!autonomousArmed_->load() || now >= autonomousUntil_) {
+        sendUDP("MOTOR, STOP");
+        clearAutonomousMovement();
+        return;
+    }
 
-    //     } else if (data->llmInput->type == MovementType::Stop) {
-    //         sendUDP("MOTOR, STOP");
-    //     }
-    // }
+    if (now >= nextAutonomousHeartbeat_) {
+        sendUDP(autonomousCommand_);
+        nextAutonomousHeartbeat_ = now + std::chrono::milliseconds(250);
+    }
+}
+
+void RobotControlWorker::clearAutonomousMovement() {
+    autonomousCommand_ = "MOTOR, STOP";
+    autonomousUntil_ = {};
+    nextAutonomousHeartbeat_ = {};
 }
 
 void RobotControlWorker::sendUDP(const char* message) {
