@@ -9,8 +9,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-SDLWorker::SDLWorker(std::shared_ptr<SensorDataDispatcherInterface> dispatcher)
+SDLWorker::SDLWorker(std::shared_ptr<SensorDataDispatcherInterface> dispatcher,
+                     std::shared_ptr<std::atomic<bool>> autonomousArmed)
     : dispatcher_(std::move(dispatcher)),
+      autonomousArmed_(std::move(autonomousArmed)),
       queue_(folly::ProducerConsumerQueue<std::shared_ptr<SensorData>>(100)) {}
 
 void SDLWorker::process(std::shared_ptr<SensorData> data) {}
@@ -23,11 +25,18 @@ void SDLWorker::enqueue(std::shared_ptr<SensorData> data) {
 }
 
 void SDLWorker::start() {
+    auto stopAuto = [&]() {
+        autonomousArmed_->store(false);
+        auto stopData = std::make_shared<SensorData>();
+        stopData->userInput = UserInputData{};
+        dispatcher_->enqueueData(stopData);
+    };
 
-    // 1. Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError()
                   << std::endl;
+        stopAuto();
+        return;
     }
 
     int imgFlags = IMG_INIT_JPG;
@@ -44,6 +53,9 @@ void SDLWorker::start() {
     if (window == nullptr) {
         std::cerr << "Window could not be created! SDL_Error: "
                   << SDL_GetError() << std::endl;
+        stopAuto();
+        SDL_Quit();
+        return;
     }
 
     //  Test renderer for the window
@@ -52,15 +64,21 @@ void SDLWorker::start() {
     if (renderer == nullptr) {
         std::cerr << "Renderer could not be created! SDL_Error: "
                   << SDL_GetError() << std::endl;
+        stopAuto();
         isRunning = false;
+        SDL_DestroyWindow(window);
+        IMG_Quit();
+        SDL_Quit();
         return;
     }
 
     // 3. Main Loop Flag
     SDL_Event event;
 
-    std::cout << "Controller started. Press W, A, S, D to drive. Close window "
-                 "to quit."
+    std::cout << "Controller started in MANUAL mode. W/A/S/D drive, Space "
+                 "stops."
+              << std::endl;
+    std::cout << "Autonomous control is DISARMED. Press F8 to arm."
               << std::endl;
 
     UserInputData inputState;
@@ -69,6 +87,14 @@ void SDLWorker::start() {
         inputData->userInput = inputState;
         dispatcher_->enqueueData(inputData);
     };
+    auto stopAutoAndUpdateUi = [&]() {
+        inputState = UserInputData{};
+        stopAuto();
+        SDL_SetWindowTitle(window,
+                           "Robot Controller - AUTONOMOUS DISARMED");
+    };
+
+    stopAutoAndUpdateUi();
 
     isRunning = true;
 
@@ -87,22 +113,47 @@ void SDLWorker::start() {
                 if (event.key.repeat == 0) {
                     switch (event.key.keysym.sym) {
                     case SDLK_w:
+                        autonomousArmed_->store(false);
+                        inputState = UserInputData{};
                         inputState.forward = true;
                         sendInput();
                         break;
                     case SDLK_a:
+                        autonomousArmed_->store(false);
+                        inputState = UserInputData{};
                         inputState.left = true;
                         sendInput();
                         break;
                     case SDLK_s:
+                        autonomousArmed_->store(false);
+                        inputState = UserInputData{};
                         inputState.backward = true;
                         sendInput();
                         break;
                     case SDLK_d:
+                        autonomousArmed_->store(false);
+                        inputState = UserInputData{};
                         inputState.right = true;
                         sendInput();
                         break;
+                    case SDLK_F8: {
+                        bool armed = !autonomousArmed_->load();
+                        stopAutoAndUpdateUi();
+                        autonomousArmed_->store(armed);
+                        SDL_SetWindowTitle(
+                            window, armed
+                                        ? "Robot Controller - AUTONOMOUS ARMED"
+                                        : "Robot Controller - AUTONOMOUS DISARMED");
+                        std::cout << "Autonomous control "
+                                  << (armed ? "ARMED" : "DISARMED")
+                                  << std::endl;
+                        break;
+                    }
+                    case SDLK_SPACE:
+                        stopAutoAndUpdateUi();
+                        break;
                     case SDLK_ESCAPE:
+                        stopAutoAndUpdateUi();
                         isRunning = false;
                         break;
                     }
@@ -131,7 +182,14 @@ void SDLWorker::start() {
             }
             // Optional: Handle user clicking the 'X' on the window
             else if (event.type == SDL_QUIT) {
+                stopAutoAndUpdateUi();
                 isRunning = false;
+            } else if (event.type == SDL_WINDOWEVENT &&
+                       (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+                        event.window.event == SDL_WINDOWEVENT_HIDDEN ||
+                        event.window.event == SDL_WINDOWEVENT_MINIMIZED ||
+                        event.window.event == SDL_WINDOWEVENT_CLOSE)) {
+                stopAutoAndUpdateUi();
             }
         } // <--- IMPORTANT: The event loop MUST close here!
 
@@ -201,6 +259,7 @@ void SDLWorker::start() {
     }
 
     // Cleanup
+    stopAutoAndUpdateUi();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

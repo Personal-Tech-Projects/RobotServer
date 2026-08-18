@@ -4,12 +4,15 @@
 #include "SDLWorker.h"
 #include "SensorDataDispatcher.h"
 #include "WorkerManager.h"
+#include <atomic>
 #include <fcntl.h>
 #include <iostream>
+#include <memory>
 #include <sys/file.h>
 #include <unistd.h>
 
 int main() {
+    auto autonomousArmed = std::make_shared<std::atomic<bool>>(false);
     int lockFd = open("/tmp/robot_server.lock", O_CREAT | O_RDWR, 0644);
     if (lockFd < 0 || flock(lockFd, LOCK_EX | LOCK_NB) < 0) {
         if (lockFd >= 0)
@@ -31,11 +34,14 @@ int main() {
     std::vector<std::shared_ptr<WorkerInterface>> workers;
     std::vector<std::shared_ptr<WorkerInterface>> asyncWorkers;
 
-    auto sdlWorker = std::make_shared<SDLWorker>(dispatcher);
+    auto sdlWorker =
+        std::make_shared<SDLWorker>(dispatcher, autonomousArmed);
     auto remoteWebcamProviderWorker =
         std::make_shared<RemoteWebcamProviderWorker>(dispatcher);
-    auto llmWorker = std::make_shared<LLMPetDetectionWorker>(dispatcher);
-    auto robotControlWorker = std::make_shared<RobotControlWorker>();
+    auto llmWorker =
+        std::make_shared<LLMPetDetectionWorker>(dispatcher, autonomousArmed);
+    auto robotControlWorker =
+        std::make_shared<RobotControlWorker>(autonomousArmed);
 
     dispatcher->addProcessor(sdlWorker);
     dispatcher->addProcessor(llmWorker);
@@ -44,6 +50,9 @@ int main() {
     asyncWorkers.push_back(remoteWebcamProviderWorker);
     asyncWorkers.push_back(sdlWorker);
     asyncWorkers.push_back(llmWorker);
+    std::cout << "Autonomous control available; starts DISARMED. Press F8 to "
+                 "arm."
+              << std::endl;
     asyncWorkers.push_back(robotControlWorker);
 
     WorkerManager workerManager(dispatcher, workers, asyncWorkers);

@@ -12,8 +12,10 @@
 std::string ARDUINO_IP;
 const int ARDUINO_PORT = 4210;
 
-RobotControlWorker::RobotControlWorker()
-    : queue_(folly::ProducerConsumerQueue<std::shared_ptr<SensorData>>(100)) {}
+RobotControlWorker::RobotControlWorker(
+    std::shared_ptr<std::atomic<bool>> autonomousArmed)
+    : queue_(folly::ProducerConsumerQueue<std::shared_ptr<SensorData>>(100)),
+      autonomousArmed_(std::move(autonomousArmed)) {}
 
 void RobotControlWorker::enqueue(std::shared_ptr<SensorData> data) {
     if (!data->userInput.has_value() && !data->llmInput.has_value()) {
@@ -183,8 +185,9 @@ void RobotControlWorker::process(std::shared_ptr<SensorData> data) {
     }
 
     if (data->llmInput.has_value()) {
-        std::cout << "hasvalue" << std::endl;
-        processLLMInput(data);
+        if (autonomousArmed_->load()) {
+            processLLMInput(data);
+        }
     }
 }
 

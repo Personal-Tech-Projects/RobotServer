@@ -65,14 +65,16 @@ std::string base64_encode(const std::vector<uint8_t>& buf) {
 }
 
 LLMPetDetectionWorker::LLMPetDetectionWorker(
-    std::shared_ptr<SensorDataDispatcherInterface> dispatcher)
+    std::shared_ptr<SensorDataDispatcherInterface> dispatcher,
+    std::shared_ptr<std::atomic<bool>> autonomousArmed)
     : dispatcher_(std::move(dispatcher)),
-      queue_(folly::ProducerConsumerQueue<std::shared_ptr<SensorData>>(100)) {
+      queue_(folly::ProducerConsumerQueue<std::shared_ptr<SensorData>>(100)),
+      autonomousArmed_(std::move(autonomousArmed)) {
     apiKey_ = loadApiKey();
 }
 
 void LLMPetDetectionWorker::enqueue(std::shared_ptr<SensorData> data) {
-    if (!data->image.has_value()) {
+    if (!autonomousArmed_->load() || !data->image.has_value()) {
         return;
     }
     queue_.write(data);
@@ -94,10 +96,10 @@ void LLMPetDetectionWorker::start() {
             }
 
             // Now, only send that single, freshest frame to Gemini!
-            if (latestData) {
+            if (latestData && autonomousArmed_->load()) {
                 process(latestData);
 
-                // Wait 10 seconds so Google doesn't block us
+                // Briefly rate-limit requests so Google doesn't block us.
                 std::this_thread::sleep_for(std::chrono::seconds(2));
             }
 
@@ -114,7 +116,8 @@ void LLMPetDetectionWorker::stop() {
 }
 
 void LLMPetDetectionWorker::process(std::shared_ptr<SensorData> data) {
-    if (!data->image.has_value() || data->image->jpegBuffer.empty()) {
+    if (!autonomousArmed_->load() || !data->image.has_value() ||
+        data->image->jpegBuffer.empty()) {
         return;
     }
 
@@ -267,7 +270,9 @@ LLMPetDetectionWorker::askGemini(const std::vector<uint8_t>& imageBuffer) {
                     std::vector<int>{static_cast<int>(Object::Cat)};
             }
 
-            dispatcher_->enqueueData(sensorData);
+            if (autonomousArmed_->load()) {
+                dispatcher_->enqueueData(sensorData);
+            }
 
         } catch (const std::exception& e) {
             std::cerr << "[LLM ERROR] Parsing failed: " << e.what()

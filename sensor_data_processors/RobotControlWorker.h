@@ -10,7 +10,8 @@
 
 class RobotControlWorker : public SensorDataWorkerInterface {
   public:
-    RobotControlWorker();
+    explicit RobotControlWorker(
+        std::shared_ptr<std::atomic<bool>> autonomousArmed);
     virtual ~RobotControlWorker() override = default;
 
     void start() override;
@@ -28,4 +29,5 @@ class RobotControlWorker : public SensorDataWorkerInterface {
     int arduinoSocket_;
     int listenSocket_{-1};
     struct sockaddr_in arduinoAddr_;
+    std::shared_ptr<std::atomic<bool>> autonomousArmed_;
 };

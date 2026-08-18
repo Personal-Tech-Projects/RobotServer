@@ -10,7 +10,8 @@
 
 class LLMPetDetectionWorker : public SensorDataWorkerInterface {
   public:
-    LLMPetDetectionWorker(std::shared_ptr<SensorDataDispatcherInterface>);
+    LLMPetDetectionWorker(std::shared_ptr<SensorDataDispatcherInterface>,
+                          std::shared_ptr<std::atomic<bool>> autonomousArmed);
     virtual ~LLMPetDetectionWorker() override = default;
 
     void start() override;
@@ -25,6 +26,7 @@ class LLMPetDetectionWorker : public SensorDataWorkerInterface {
     folly::ProducerConsumerQueue<std::shared_ptr<SensorData>> queue_;
     std::string apiKey_;
     std::atomic<bool> isRunning_{false};
+    std::shared_ptr<std::atomic<bool>> autonomousArmed_;
     std::vector<std::shared_ptr<SensorData>> cachedImages_ =
         std::vector<std::shared_ptr<SensorData>>(10);
     int cachedImagesIndex_ = 0;

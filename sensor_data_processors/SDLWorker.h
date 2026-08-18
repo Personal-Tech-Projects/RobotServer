@@ -1,8 +1,8 @@
 #pragma once
 
 #include <atomic>
-#include <mutex>   // ADDED: For thread safety
 #include <memory>
+#include <mutex>
 
 #include "WorkerInterface.h"
 #include "SensorDataDispatcherInterface.h"
@@ -11,7 +11,8 @@
 
 class SDLWorker : public SensorDataWorkerInterface {
 public: 
-    SDLWorker(std::shared_ptr<SensorDataDispatcherInterface> dispatcher);
+    SDLWorker(std::shared_ptr<SensorDataDispatcherInterface> dispatcher,
+              std::shared_ptr<std::atomic<bool>> autonomousArmed);
     virtual ~SDLWorker() override = default;
     void start() override;
     void stop() override;
@@ -20,9 +21,9 @@ public:
 private:
     std::shared_ptr<SensorDataDispatcherInterface> dispatcher_;
     std::atomic<bool> isRunning{false};
+    std::shared_ptr<std::atomic<bool>> autonomousArmed_;
 
     std::mutex dataMutex_;
     std::shared_ptr<SensorData> latestData_ = nullptr;
     folly::ProducerConsumerQueue<std::shared_ptr<SensorData>> queue_;
-    bool isRunning_ = true;
 };
